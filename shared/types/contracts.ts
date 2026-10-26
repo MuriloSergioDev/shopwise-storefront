@@ -1,5 +1,5 @@
 // View-model types shared by the app and the BFF, taken from the service contracts.
-import type { CatalogApi, IdentityApi } from '@shopwise/contracts'
+import type { CartApi, CatalogApi, IdentityApi, PricingApi } from '@shopwise/contracts'
 
 type CatalogSchemas = CatalogApi.components['schemas']
 
@@ -13,3 +13,11 @@ export type ProductSearchResult =
 
 export type TokenPair = IdentityApi.components['schemas']['TokenPair']
 export type Customer = IdentityApi.components['schemas']['Customer']
+
+export type Cart = CartApi.components['schemas']['Cart']
+export type CartLine = CartApi.components['schemas']['CartLine']
+
+export type Price = PricingApi.components['schemas']['Price']
+export type Quote = PricingApi.components['schemas']['Quote']
+export type QuoteCoupon = NonNullable<Quote['coupon']>
+export type CouponReason = NonNullable<QuoteCoupon['reason']>

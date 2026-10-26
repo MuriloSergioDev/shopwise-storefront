@@ -11,19 +11,25 @@ interface Registration extends Credentials {
 export function useAuth() {
   const { loggedIn, user, fetch: refreshSession } = useUserSession()
 
+  // Signing in merges the guest cart and signing out leaves the customer's, so the cart changes with the session.
+  async function sessionChanged() {
+    await refreshSession()
+    await refreshNuxtData('cart')
+  }
+
   async function login(credentials: Credentials) {
     await $fetch('/api/auth/login', { method: 'POST', body: credentials })
-    await refreshSession()
+    await sessionChanged()
   }
 
   async function register(registration: Registration) {
     await $fetch('/api/auth/register', { method: 'POST', body: registration })
-    await refreshSession()
+    await sessionChanged()
   }
 
   async function logout() {
     await $fetch('/api/auth/logout', { method: 'POST' })
-    await refreshSession()
+    await sessionChanged()
   }
 
   return { loggedIn, user, login, register, logout }

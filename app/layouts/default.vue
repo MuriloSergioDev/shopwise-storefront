@@ -11,6 +11,7 @@ const links: NavigationMenuItem[] = [{ label: 'Products', to: '/products' }]
 
       <template #right>
         <SearchInput class="hidden md:block" />
+        <CartButton />
         <UserMenu />
       </template>
 

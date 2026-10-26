@@ -16,6 +16,34 @@ const options = computed(() => optionValues(product.value?.variants ?? []))
 const selected = ref<Record<string, string>>({ ...product.value?.variants[0]?.options })
 const variant = computed(() => findVariant(product.value?.variants ?? [], selected.value))
 const imageIndex = ref(0)
+
+const skus = computed(() => (product.value?.variants ?? []).map((candidate) => candidate.sku))
+const { data: prices } = await usePrices(skus)
+const price = computed(() => (variant.value ? prices.value[variant.value.sku] : undefined))
+
+const { add } = useCartActions()
+const toast = useToast()
+const adding = ref(false)
+
+async function addToCart() {
+  if (!variant.value) {
+    return
+  }
+  adding.value = true
+  try {
+    await add(variant.value.sku)
+    toast.add({
+      title: 'Added to cart',
+      description: variant.value.name,
+      icon: 'i-lucide-shopping-cart',
+      actions: [{ label: 'View cart', to: '/cart' }],
+    })
+  } catch (failure) {
+    toast.add({ title: errorMessageOf(failure, 'This item could not be added.'), color: 'error' })
+  } finally {
+    adding.value = false
+  }
+}
 const image = computed(() => product.value?.images[imageIndex.value])
 </script>
 
@@ -76,13 +104,26 @@ const image = computed(() => product.value?.images[imageIndex.value])
           </div>
         </div>
 
-        <div class="rounded-lg border border-default p-4 text-sm">
+        <div class="space-y-3 rounded-lg border border-default p-4">
           <template v-if="variant">
-            <p class="font-medium text-highlighted">{{ variant.name }}</p>
-            <p class="text-muted">SKU {{ variant.sku }}</p>
+            <p class="text-2xl font-semibold text-highlighted" data-test="price">
+              {{ price ? formatMoney(price.amount, price.currency) : 'Price unavailable' }}
+            </p>
+            <p class="text-sm font-medium text-highlighted">{{ variant.name }}</p>
+            <p class="text-sm text-muted">SKU {{ variant.sku }}</p>
+            <UButton
+              v-if="variant.active"
+              label="Add to cart"
+              icon="i-lucide-shopping-cart"
+              size="lg"
+              block
+              :loading="adding"
+              :disabled="!price"
+              @click="addToCart"
+            />
+            <p v-else class="text-sm text-muted">This option is no longer available.</p>
           </template>
-          <p v-else class="text-muted">This combination is not available.</p>
-          <p class="mt-2 text-muted">Prices and checkout are coming soon.</p>
+          <p v-else class="text-sm text-muted">This combination is not available.</p>
         </div>
       </div>
     </div>

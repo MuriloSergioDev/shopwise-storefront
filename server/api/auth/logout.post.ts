@@ -1,10 +1,11 @@
 export default defineEventHandler(async (event) => {
   const session = await getUserSession(event)
-  if (session.secure) {
+  const tokens = session.secure?.tokens
+  if (tokens) {
     // Revoking is best effort: the cookie goes either way and access tokens expire on their own.
     await serviceFetch(event, 'identity', '/api/tokens/revoke', {
       method: 'POST',
-      body: { refreshToken: session.secure.refreshToken },
+      body: { refreshToken: tokens.refreshToken },
     }).catch(() => undefined)
   }
   await clearUserSession(event)

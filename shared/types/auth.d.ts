@@ -8,10 +8,13 @@ declare module '#auth-utils' {
   }
 
   interface SecureSessionData {
-    accessToken: string
-    /** Epoch milliseconds. */
-    accessExpiresAt: number
-    refreshToken: string
+    /** Set while a customer is signed in. `accessExpiresAt` is epoch milliseconds. */
+    tokens?: { accessToken: string; accessExpiresAt: number; refreshToken: string }
+    /**
+     * A guest cart: reachable by its id alone, so the id is a secret and stays here. Kept after sign-in only while
+     * merging it into the customer's cart has not succeeded yet.
+     */
+    guestCartId?: string
   }
 }
 

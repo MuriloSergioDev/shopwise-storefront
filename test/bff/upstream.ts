@@ -15,10 +15,10 @@ export interface UpstreamReply {
 }
 
 /**
- * A fake identity + catalog on one port. Every call is recorded; `reply` decides the response. The BFF under test
- * is pointed at it through NUXT_IDENTITY_URL / NUXT_CATALOG_URL.
+ * Fake services (identity, catalog, pricing, cart) on one port. Every call is recorded; `reply` decides the
+ * response (it may be async, to hold a response back). The BFF under test is pointed at it through NUXT_*_URL.
  */
-export async function startUpstream(reply: (call: UpstreamCall) => UpstreamReply) {
+export async function startUpstream(reply: (call: UpstreamCall) => UpstreamReply | Promise<UpstreamReply>) {
   const calls: UpstreamCall[] = []
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = []
@@ -36,7 +36,7 @@ export async function startUpstream(reply: (call: UpstreamCall) => UpstreamReply
     }
     calls.push(call)
 
-    const { status, body } = reply(call)
+    const { status, body } = await reply(call)
     res.writeHead(status, { 'content-type': 'application/json' })
     res.end(body === undefined ? '' : JSON.stringify(body))
   })
