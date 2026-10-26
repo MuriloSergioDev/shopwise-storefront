@@ -1,0 +1,7 @@
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  lefthook: true
+  '@shopwise/contracts': false
+  unrs-resolver: false
+  vue-demi: false
