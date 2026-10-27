@@ -431,6 +431,14 @@ function checkout(call: UpstreamCall): UpstreamReply | undefined {
   }
 }
 
+function payments(call: UpstreamCall): UpstreamReply | undefined {
+  if (call.method === 'POST' && call.path === '/api/dev/payment-actions') {
+    const found = [...state.checkouts.values()].find((candidate) => candidate.clientSecret === call.body?.clientSecret)
+
+    return found ? ok({ data: { checkoutId: found.id, status: call.body?.outcome } }) : { status: 404 }
+  }
+}
+
 function orders(call: UpstreamCall): UpstreamReply | undefined {
   if (call.method !== 'GET' || !call.path.startsWith('/api/me/orders')) {
     return undefined
@@ -456,7 +464,8 @@ export async function reply(call: UpstreamCall): Promise<UpstreamReply> {
     pricing(call) ??
     cart(call) ??
     checkout(call) ??
-    orders(call) ?? {
+    orders(call) ??
+    payments(call) ?? {
       status: 500,
       body: { message: 'SQLSTATE[42P01]: relation "products" does not exist' },
     }

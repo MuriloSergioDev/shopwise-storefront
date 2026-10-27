@@ -5,10 +5,12 @@ import { startUpstream, type UpstreamCall } from './upstream'
 import { PASSWORD, customer, lastIssued, order, reply, reset, searchResult, state } from './fake-services'
 
 const upstream = await startUpstream(reply)
-for (const service of ['IDENTITY', 'CATALOG', 'PRICING', 'CART', 'CHECKOUT', 'ORDERS']) {
+for (const service of ['IDENTITY', 'CATALOG', 'PRICING', 'CART', 'CHECKOUT', 'ORDERS', 'PAYMENTS']) {
   process.env[`NUXT_${service}_URL`] = upstream.url
 }
 process.env.NUXT_SESSION_PASSWORD = 'test-session-password-at-least-32-chars'
+// Test-card mode (no Stripe key), as under `nuxt dev`: enables the fake 3-D Secure route.
+process.env.NUXT_PUBLIC_TEST_CARDS = 'true'
 
 await setup({ server: true, browser: false })
 
@@ -665,5 +667,42 @@ describe('cart lock and merge limits', () => {
     const { data: cart } = await (await browser.request('/api/cart')).json()
     expect(callsTo('POST', '/api/me/cart/merge')[0]?.body).toEqual({ guestCartId: 'guest-1' })
     expect(cart.lines.map((line: { sku: string }) => line.sku)).toEqual(['MUG-WHT', 'TEE-BLK-L'])
+  })
+})
+
+describe('test 3-D Secure', () => {
+  it("finishes the customer's pending 3-D Secure step through payments' fake gateway", async () => {
+    const browser = new Browser()
+    await browser.signIn()
+    await browser.post('/api/cart/items', { sku: 'MUG-WHT' })
+    const { data: started } = await (await browser.post('/api/checkout', attempt())).json()
+    Object.assign(state.checkouts.get(started.id)!, {
+      status: 'awaiting_payment_action',
+      clientSecret: 'pi_fake_1_secret_fake',
+    })
+    upstream.calls.length = 0
+
+    const response = await browser.post(`/api/checkout/${started.id}/test-payment-action`, { outcome: 'failed' })
+
+    expect(response.status).toBe(200)
+    expect(callsTo('GET', `/api/checkouts/${started.id}`)[0]?.headers.authorization).toMatch(/^Bearer access-/)
+    expect(callsTo('POST', '/api/dev/payment-actions')[0]?.body).toEqual({
+      clientSecret: 'pi_fake_1_secret_fake',
+      outcome: 'failed',
+    })
+  })
+
+  it('refuses a checkout that is not waiting for 3-D Secure, and a bad outcome', async () => {
+    const browser = new Browser()
+    await browser.signIn()
+    await browser.post('/api/cart/items', { sku: 'MUG-WHT' })
+    const { data: started } = await (await browser.post('/api/checkout', attempt())).json()
+
+    const notWaiting = await browser.post(`/api/checkout/${started.id}/test-payment-action`, { outcome: 'succeeded' })
+    const bad = await browser.post(`/api/checkout/${started.id}/test-payment-action`, { outcome: 'maybe' })
+
+    expect(notWaiting.status).toBe(409)
+    expect(bad.status).toBe(400)
+    expect(callsTo('POST', '/api/dev/payment-actions')).toHaveLength(0)
   })
 })

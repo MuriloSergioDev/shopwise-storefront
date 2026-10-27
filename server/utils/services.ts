@@ -2,7 +2,7 @@ import type { H3Event } from 'h3'
 import { FetchError, ofetch } from 'ofetch'
 import type { Customer, TokenPair } from '#shared/types/contracts'
 
-export type Service = 'identity' | 'catalog' | 'pricing' | 'cart' | 'checkout' | 'orders'
+export type Service = 'identity' | 'catalog' | 'pricing' | 'cart' | 'checkout' | 'orders' | 'payments'
 
 interface ServiceFetchOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -33,6 +33,7 @@ export async function serviceFetch<T>(
     cart: config.cartUrl,
     checkout: config.checkoutUrl,
     orders: config.ordersUrl,
+    payments: config.paymentsUrl,
   }[service]
 
   const headers: Record<string, string> = { ...options.headers, accept: 'application/json' }

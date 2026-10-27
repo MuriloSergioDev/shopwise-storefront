@@ -8,7 +8,7 @@ export default defineNuxtConfig({
 
   // Service base URLs are server-only: the browser only ever talks to this BFF.
   // Override with NUXT_IDENTITY_URL / NUXT_CATALOG_URL / NUXT_PRICING_URL / NUXT_CART_URL / NUXT_CHECKOUT_URL /
-  // NUXT_ORDERS_URL.
+  // NUXT_ORDERS_URL / NUXT_PAYMENTS_URL.
   runtimeConfig: {
     identityUrl: 'http://localhost:8101',
     catalogUrl: 'http://localhost:8102',
@@ -16,6 +16,8 @@ export default defineNuxtConfig({
     cartUrl: 'http://localhost:8105',
     checkoutUrl: 'http://localhost:8106',
     ordersUrl: 'http://localhost:8108',
+    // Only for the dev-only fake 3-D Secure step (server/api/checkout/[id]/test-payment-action.post.ts).
+    paymentsUrl: 'http://localhost:8107',
     tracing: {
       // OTLP/HTTP collector for the BFF's spans (NUXT_TRACING_EXPORTER_URL). `nuxt dev` uses the cluster's (Tilt
       // forwards :4318); builds export nothing unless it is set.

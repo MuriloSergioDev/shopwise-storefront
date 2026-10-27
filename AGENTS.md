@@ -35,7 +35,8 @@ BFF routes: `POST /api/auth/{login,register,logout}`, `GET /api/catalog/categori
 (`{sku, quantity?}`, adds to what is there), `PUT|DELETE /api/cart/items/{sku}` (`{quantity}` sets it),
 `PUT|DELETE /api/cart/coupon` (`{code}`). Every cart route returns the `CartView` (`shared/types/cart.ts`).
 `POST /api/checkout` (`{attemptId, paymentMethodId, shippingAddress}` → 202 with checkout's `Checkout`),
-`GET /api/checkout/{id}`, `GET /api/orders?page=`, `GET /api/orders/{id}` (customers only, contract shapes).
+`GET /api/checkout/{id}`, `POST /api/checkout/{id}/test-payment-action` (dev only), `GET /api/orders?page=`,
+`GET /api/orders/{id}` (customers only, contract shapes).
 
 ## Rules
 
@@ -78,7 +79,9 @@ BFF routes: `POST /api/auth/{login,register,logout}`, `GET /api/catalog/categori
   Card data never reaches the BFF. The status page polls every second; an order exists from `closing_cart` on.
   3-D Secure: status `awaiting_payment_action` carries `clientSecret` + `paymentActionExpiresAt`; with Stripe the
   page runs `stripe.handleNextAction` once and keeps polling (payments learns the outcome from the webhook); in
-  test-card mode `TestPaymentAction` explains how to finish it with the fake gateway.
+  test-card mode `TestPaymentAction` plays the bank: `POST /api/checkout/{id}/test-payment-action`
+  (`{outcome: succeeded|failed}`, 404 unless test cards are on and there is no Stripe key) reads the customer's own
+  checkout for its client secret and calls payments' dev-only `POST /api/dev/payment-actions` (`NUXT_PAYMENTS_URL`, :8107).
 - **Cart lock**: checkout's snapshot locks the cart (`lockedByCheckoutId` in the cart and in `CartView`). While set,
   cart shows read-only with a link to that checkout, the checkout page refuses to start another, and any change is
   cart's 409 `cart_locked`, passed on as 409 with `data: {code, checkoutId}` and a shopper message. The merge is 409
@@ -102,16 +105,18 @@ http://localhost:3000. Alone: `pnpm dev` (needs identity :8101, catalog :8102, p
 - `test/unit` — plain Node, pure helpers.
 - `test/nuxt` — Nuxt environment, components and pages (`mountSuspended`, `registerEndpoint`).
 - `test/bff` — builds the app and calls the real Nitro server against in-memory fakes of identity, catalog,
-  pricing, cart, checkout and orders (`test/bff/fake-services.ts` on `upstream.ts`). Every BFF route gets a test
-  here, and so does
-  the refresh behaviour (401 retry, concurrent and late requests, SSR page requests, rejected refresh).
+  pricing, cart, checkout, orders and payments' dev endpoint (`test/bff/fake-services.ts` on `upstream.ts`). Every
+  BFF route gets a test here, and so does the refresh behaviour (401 retry, concurrent and late requests, SSR page
+  requests, rejected refresh).
 
 `pnpm e2e` = Playwright (`e2e/`, `playwright.config.ts`) against the running Tilt cluster, not run in CI:
 needs `tilt up` with every service, the PROGRESS.md seeders (catalog, pricing, inventory at least) and once
 `pnpm exec playwright install chromium`. Each test registers a fresh customer. Covers the happy path (browse → add
 → WELCOME10 → checkout with the test Visa → confirmation → order in history, stock −1, cart emptied) and the
-declined card (failure reason shown, reservation released so stock is back, cart kept, no order). Pages are
-server-rendered: tests `visit()` and wait for hydration before clicking. Override URLs with `E2E_BASE_URL` and
+declined card (failure reason shown, reservation released so stock is back, cart kept, no order), 3-D Secure
+confirmed (cart locked meanwhile: 409 `cart_locked` and a read-only cart page; then the order) and 3-D Secure failed
+(`authentication_required`, stock back, cart unlocked and editable). Pages are server-rendered: tests `visit()` and
+wait for hydration before clicking. Override URLs with `E2E_BASE_URL` and
 `E2E_INVENTORY_URL`.
 
 Install note: `pnpm-workspace.yaml` allowlists build scripts; `@shopwise/contracts` is set to `false` so pnpm doesn't

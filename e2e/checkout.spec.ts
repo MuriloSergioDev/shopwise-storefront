@@ -114,3 +114,57 @@ test('a declined card fails the checkout, releases the reservation and keeps the
   await visit(page, '/orders')
   await expect(page.getByText('You have not ordered anything yet.')).toBeVisible()
 })
+
+/** Starts a checkout with the 3-D Secure test card and waits until it asks for the bank's confirmation. */
+async function checkOutWith3ds(page: Page, slug: string) {
+  await registerCustomer(page)
+  const sku = await addToCart(page, slug)
+  const before = await available(page.request, sku)
+
+  await visit(page, '/checkout')
+  await fillShippingAddress(page)
+  await page.getByText('Visa ending 3220').click()
+  await page.getByRole('button', { name: 'Place order' }).click()
+  await expect(page.locator('[data-test="test-payment-action"]')).toBeVisible({ timeout: 60_000 })
+
+  return { sku, before }
+}
+
+test('3-D Secure confirmed: the cart is locked while waiting, then the order is placed', async ({ page, context }) => {
+  const { sku, before } = await checkOutWith3ds(page, 'linen-camp-shirt')
+
+  // The checkout holds the cart: changes are refused and the cart page is read-only.
+  const edit = await page.request.put(`/api/cart/items/${encodeURIComponent(sku)}`, { data: { quantity: 3 } })
+  expect(edit.status()).toBe(409)
+  expect((await edit.json()).data).toMatchObject({ code: 'cart_locked' })
+  const cartPage = await context.newPage()
+  await visit(cartPage, '/cart')
+  await expect(cartPage.locator('[data-test="cart-locked"]')).toContainText('Your cart is being checked out.')
+  await expect(cartPage.getByLabel('Coupon code')).toBeDisabled()
+  await cartPage.close()
+
+  await page.getByRole('button', { name: 'Complete 3-D Secure' }).click()
+  await expect(page.locator('[data-test="checkout-confirmed"]')).toBeVisible({ timeout: 60_000 })
+  expect(await available(page.request, sku)).toBe(before - 1)
+
+  await visit(page, '/orders')
+  await expect(page.getByRole('link', { name: /SW-\d+/ })).toBeVisible()
+})
+
+test('3-D Secure failed: authentication_required, stock released and the cart unlocked', async ({ page }) => {
+  const { sku, before } = await checkOutWith3ds(page, 'cotton-chino-shorts')
+
+  await page.getByRole('button', { name: 'Fail 3-D Secure' }).click()
+  await expect(page.locator('[data-test="failure-reason"]')).toContainText(
+    'We are unable to authenticate your payment method.',
+    { timeout: 60_000 },
+  )
+  await expect(page.locator('[data-status="failed"]')).toBeVisible({ timeout: 60_000 })
+  await expect.poll(() => available(page.request, sku)).toBe(before)
+
+  // Checkout unlocked the cart when it failed: it can be changed again.
+  const { data: cart } = await (await page.request.get('/api/cart')).json()
+  expect(cart.lockedByCheckoutId).toBeNull()
+  const edit = await page.request.put(`/api/cart/items/${encodeURIComponent(sku)}`, { data: { quantity: 2 } })
+  expect(edit.status()).toBe(200)
+})
