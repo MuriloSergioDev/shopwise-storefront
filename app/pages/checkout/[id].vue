@@ -16,6 +16,7 @@ if (error.value?.statusCode === 404) {
 }
 
 const placed = computed(() => !!checkout.value && isPlaced(checkout.value))
+const awaitingAction = computed(() => checkout.value?.status === 'awaiting_payment_action')
 const failure = computed(() => (checkout.value ? failureMessage(checkout.value) : null))
 const gaveUp = ref(false)
 
@@ -41,8 +42,27 @@ async function poll() {
 watch(placed, (now) => now && refreshNuxtData('cart'))
 
 onMounted(poll)
+
+// 3-D Secure: payments left the PaymentIntent in requires_action and checkout hands us its client secret. With Stripe
+// the bank's challenge opens here; payments learns the outcome from Stripe's webhook, so polling just continues.
+const { handleNextAction, mode: paymentMode } = usePaymentAction()
+const actionError = ref<string>()
+const actionStarted = ref(false)
+
+watch(
+  () => (awaitingAction.value ? checkout.value?.clientSecret : null),
+  async (clientSecret) => {
+    if (!clientSecret || actionStarted.value || paymentMode !== 'stripe') {
+      return
+    }
+    actionStarted.value = true
+    actionError.value = (await handleNextAction(clientSecret)) ?? undefined
+  },
+  { immediate: import.meta.client },
+)
 onBeforeUnmount(() => clearTimeout(timer))
 
+const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeStyle: 'short' })
 const money = (amount: number) => (checkout.value ? formatMoney(amount, checkout.value.currency) : '')
 </script>
 
@@ -74,6 +94,19 @@ const money = (amount: number) => (checkout.value ? formatMoney(amount, checkout
           <UButton to="/checkout" label="Try again" icon="i-lucide-rotate-ccw" />
           <UButton to="/cart" color="neutral" variant="outline" label="Back to cart" />
         </div>
+      </div>
+
+      <div v-else-if="awaitingAction" class="space-y-4" data-test="checkout-payment-action">
+        <UIcon name="i-lucide-shield-check" class="size-12 text-primary" />
+        <h1 class="text-3xl font-bold text-highlighted">Confirm the payment with your bank</h1>
+        <p v-if="paymentMode === 'stripe'" class="text-muted">
+          Follow your bank’s steps in the window that opened. This page updates by itself.
+        </p>
+        <TestPaymentAction v-else-if="paymentMode === 'test-cards'" :checkout-id="checkout.id" />
+        <p v-if="actionError" class="text-sm text-error">{{ actionError }}</p>
+        <p v-if="checkout.paymentActionExpiresAt" class="text-sm text-muted">
+          If it is not confirmed by {{ timeOf(checkout.paymentActionExpiresAt) }}, the payment is cancelled.
+        </p>
       </div>
 
       <div v-else class="space-y-4" data-test="checkout-pending">

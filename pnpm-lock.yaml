@@ -217,7 +217,7 @@ importers:
         version: 1.64.1
       '@shopwise/contracts':
         specifier: github:MuriloSergioDev/shopwise-contracts
-        version: https://codeload.github.com/MuriloSergioDev/shopwise-contracts/tar.gz/c912dd58f0e2a1e82ed7f1e43452888307f0826d
+        version: https://codeload.github.com/MuriloSergioDev/shopwise-contracts/tar.gz/3c662c95f0faaf3451a457f50f29b81449373afd
       '@vue/test-utils':
         specifier: ^2.5.1
         version: 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@5.9.3))
@@ -1687,9 +1687,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@shopwise/contracts@https://codeload.github.com/MuriloSergioDev/shopwise-contracts/tar.gz/c912dd58f0e2a1e82ed7f1e43452888307f0826d':
-    resolution: {gitHosted: true, integrity: sha512-jDFi5jJ79BUQlnTnsbyKp1TgKMocre8KWLL5/A54TAc3z2PByYFney7BLraEnqP0FEa2j4mSELv5tHS3R0REHw==, tarball: https://codeload.github.com/MuriloSergioDev/shopwise-contracts/tar.gz/c912dd58f0e2a1e82ed7f1e43452888307f0826d}
-    version: 0.1.0
+  '@shopwise/contracts@https://codeload.github.com/MuriloSergioDev/shopwise-contracts/tar.gz/3c662c95f0faaf3451a457f50f29b81449373afd':
+    resolution: {gitHosted: true, integrity: sha512-LH6+DxrGtcgg0T+8hOOnwTe2ULDz7wMZmsGFa5WUmMv7rzacA0nzrRBqf3dLMRO7DjHtHkHZQVXKfKONteppRw==, tarball: https://codeload.github.com/MuriloSergioDev/shopwise-contracts/tar.gz/3c662c95f0faaf3451a457f50f29b81449373afd}
+    version: 1.0.0
 
   '@simple-libs/child-process-utils@2.0.0':
     resolution: {integrity: sha512-dvNoRKLijXnD0XoJAz94pbNuB5GQgDr55UhpSPhffDkTT0Cmcqh9jSCOtwfT2d4H6MI9E7c4SgtMuJXZ6F3c6A==}
@@ -7482,7 +7482,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.65.0':
     optional: true
 
-  '@shopwise/contracts@https://codeload.github.com/MuriloSergioDev/shopwise-contracts/tar.gz/c912dd58f0e2a1e82ed7f1e43452888307f0826d': {}
+  '@shopwise/contracts@https://codeload.github.com/MuriloSergioDev/shopwise-contracts/tar.gz/3c662c95f0faaf3451a457f50f29b81449373afd': {}
 
   '@simple-libs/child-process-utils@2.0.0':
     dependencies:

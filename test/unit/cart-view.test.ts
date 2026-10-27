@@ -58,6 +58,7 @@ describe('composeCartView', () => {
       currency: 'USD',
       couponCode: 'TENOFF',
       coupon: { code: 'TENOFF', valid: true, reason: null, message: null, description: '10% off' },
+      lockedByCheckoutId: null,
       totals: { subtotal: 9000, discount: 900, total: 8100 },
       lines: [
         expect.objectContaining({ sku: 'A', unitAmount: 4500, lineAmount: 9000 }),
@@ -94,11 +95,30 @@ describe('composeCartView', () => {
   })
 })
 
+describe('cart lock', () => {
+  it('shows which checkout holds the cart, and null when none does', () => {
+    expect(composeCartView({ ...cart([]), lockedByCheckoutId: 'checkout-1' }, { status: 'empty' })).toMatchObject({
+      lockedByCheckoutId: 'checkout-1',
+    })
+    expect(composeCartView(cart([]), { status: 'empty' }).lockedByCheckoutId).toBeNull()
+  })
+})
+
 describe('toCartError', () => {
   it('words cart validation errors for the shopper', () => {
     const error = toCartError(createError({ statusCode: 422, data: { errors: { sku: ['The sku is invalid.'] } } }))
 
     expect(error).toMatchObject({ statusCode: 422, statusMessage: 'This item is not for sale any more.' })
+  })
+
+  it('words a locked cart for the shopper and keeps the checkout id', () => {
+    const error = toCartError(createError({ statusCode: 409, data: { code: 'cart_locked', checkoutId: 'checkout-1' } }))
+
+    expect(error).toMatchObject({
+      statusCode: 409,
+      statusMessage: 'Your cart is being checked out. It can be changed again if the checkout fails.',
+      data: { code: 'cart_locked', checkoutId: 'checkout-1' },
+    })
   })
 
   it('leaves other errors alone', () => {

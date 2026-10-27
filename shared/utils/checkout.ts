@@ -32,6 +32,7 @@ export function failureMessage(checkout: Pick<Checkout, 'failureReason' | 'payme
 const STEPS: Record<Checkout['status'], string> = {
   reserving: 'Reserving your items…',
   paying: 'Taking payment…',
+  awaiting_payment_action: 'Waiting for your bank to confirm the payment…',
   committing_stock: 'Confirming your items…',
   placing_order: 'Placing your order…',
   closing_cart: 'Order placed.',

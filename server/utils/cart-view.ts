@@ -1,4 +1,4 @@
-import { createError, isError } from 'h3'
+import { createError, isError, type H3Error } from 'h3'
 import type { Cart, CouponReason, Quote } from '#shared/types/contracts'
 import type { CartView, CartViewCoupon } from '#shared/types/cart'
 
@@ -31,7 +31,10 @@ export function couponMessage(reason: CouponReason | null): string | null {
  * Composes the cart service's lines (names, availability, last known prices) with pricing's quote (current prices,
  * totals, coupon verdict). Without a quote the lines keep the cart's display prices and totals are null.
  */
-export function composeCartView(cart: Pick<Cart, 'owner' | 'lines' | 'couponCode'>, pricing: CartPricing): CartView {
+export function composeCartView(
+  cart: Pick<Cart, 'owner' | 'lines' | 'couponCode' | 'lockedByCheckoutId'>,
+  pricing: CartPricing,
+): CartView {
   const quote = pricing.status === 'quoted' ? pricing.quote : null
   const quoted = new Map(quote?.lines.map((line) => [line.sku, line]))
 
@@ -67,6 +70,7 @@ export function composeCartView(cart: Pick<Cart, 'owner' | 'lines' | 'couponCode
     lines,
     couponCode: cart.couponCode,
     coupon,
+    lockedByCheckoutId: cart.lockedByCheckoutId ?? null,
     totals: quote
       ? { subtotal: quote.subtotal, discount: quote.discount, total: quote.total }
       : pricing.status === 'empty'
@@ -79,8 +83,24 @@ export function emptyCartView(owner: Cart['owner']): CartView {
   return composeCartView({ owner, lines: [], couponCode: null }, { status: 'empty' })
 }
 
+export const CART_LOCKED_MESSAGE = 'Your cart is being checked out. It can be changed again if the checkout fails.'
+
+/** Cart's 409 for any change while a checkout holds the cart (ADR-0004). */
+export function isCartLocked(error: unknown): boolean {
+  return (
+    isError(error) && error.statusCode === 409 && (error.data as { code?: unknown } | undefined)?.code === 'cart_locked'
+  )
+}
+
 /** Turns the cart service's validation errors (422) into messages a shopper can act on; other errors pass. */
 export function toCartError(error: unknown): unknown {
+  if (isCartLocked(error)) {
+    return createError({
+      statusCode: 409,
+      statusMessage: CART_LOCKED_MESSAGE,
+      data: { code: 'cart_locked', checkoutId: (error as H3Error<{ checkoutId?: string }>).data?.checkoutId },
+    })
+  }
   if (!isError(error) || error.statusCode !== 422) {
     return error
   }

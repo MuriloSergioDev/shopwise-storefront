@@ -82,9 +82,13 @@ export function statusOf(error: unknown): number | undefined {
 /**
  * Signs the customer in with a fresh token pair: loads their profile, merges the guest cart they built while
  * signed out, and seals the tokens into the session cookie. A failed merge does not fail the sign-in: the guest
- * cart id stays in the session and the next cart request retries it.
+ * cart id stays in the session and the next cart request retries it. Guest SKUs that did not fit into the customer
+ * cart come back as droppedSkus, for the sign-in response.
  */
-export async function startSession(event: H3Event, pair: TokenPair): Promise<Customer> {
+export async function startSession(
+  event: H3Event,
+  pair: TokenPair,
+): Promise<{ customer: Customer; droppedSkus: string[] }> {
   const { data: customer } = await serviceFetch<{ data: Customer }>(event, 'identity', '/api/me', {
     token: pair.accessToken,
   })
@@ -100,5 +104,5 @@ export async function startSession(event: H3Event, pair: TokenPair): Promise<Cus
     loggedInAt: Date.now(),
   })
 
-  return customer
+  return { customer, droppedSkus: merged?.droppedSkus ?? [] }
 }

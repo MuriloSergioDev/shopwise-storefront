@@ -4,6 +4,9 @@ import { FetchError } from 'ofetch'
 interface UpstreamBody {
   message?: string
   errors?: Record<string, string[]>
+  /** Machine-readable reason, e.g. cart's `cart_locked` (with the `checkoutId` holding the lock). */
+  code?: string
+  checkoutId?: string
 }
 
 /**
@@ -17,9 +20,20 @@ export function toBffError(service: string, error: unknown): H3Error {
     return createError({
       statusCode: status,
       statusMessage: body?.message ?? undefined,
-      data: body?.errors ? { errors: body.errors } : undefined,
+      data: toErrorData(body),
     })
   }
 
   return createError({ statusCode: 502, statusMessage: `The ${service} service is unavailable.` })
+}
+
+/** The parts of a service's error body the BFF passes on: validation errors and a machine-readable code. */
+function toErrorData(body: UpstreamBody | undefined) {
+  const data = {
+    ...(body?.errors ? { errors: body.errors } : {}),
+    ...(body?.code ? { code: body.code } : {}),
+    ...(body?.code && body.checkoutId ? { checkoutId: body.checkoutId } : {}),
+  }
+
+  return Object.keys(data).length > 0 ? data : undefined
 }

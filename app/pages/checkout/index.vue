@@ -42,6 +42,7 @@ const money = (amount: number) => (cart.value ? formatMoney(amount, cart.value.c
 const canCheckout = computed(
   () =>
     !!cart.value &&
+    !cart.value.lockedByCheckoutId &&
     cart.value.lines.length > 0 &&
     cart.value.lines.every((line) => line.available) &&
     cart.value.totals !== null &&
@@ -150,7 +151,16 @@ async function placeOrder({ data }: FormSubmitEvent<AddressForm>) {
           </div>
         </dl>
         <UAlert
-          v-if="!canCheckout"
+          v-if="cart.lockedByCheckoutId"
+          color="info"
+          variant="subtle"
+          icon="i-lucide-lock"
+          title="A checkout is already running for this cart."
+          :actions="[{ label: 'View checkout', to: `/checkout/${cart.lockedByCheckoutId}` }]"
+          data-test="cart-locked"
+        />
+        <UAlert
+          v-else-if="!canCheckout"
           color="warning"
           variant="subtle"
           icon="i-lucide-circle-alert"

@@ -13,9 +13,14 @@ const couponError = ref<string>()
 const money = (amount: number | null) =>
   amount === null || !cart.value ? '—' : formatMoney(amount, cart.value.currency)
 
+// A checkout holds the cart (ADR-0004): it is shown read-only until that checkout fails or the cart is closed.
+const locked = computed(() => !!cart.value?.lockedByCheckoutId)
+const readOnly = computed(() => busy.value || locked.value)
+
 const canCheckout = computed(
   () =>
     !!cart.value &&
+    !locked.value &&
     cart.value.lines.every((line) => line.available) &&
     cart.value.totals !== null &&
     cart.value.coupon?.valid !== false,
@@ -78,6 +83,17 @@ async function submitCoupon() {
     </div>
 
     <div v-else-if="cart" class="grid gap-10 lg:grid-cols-3">
+      <UAlert
+        v-if="cart.lockedByCheckoutId"
+        class="lg:col-span-3"
+        color="info"
+        variant="subtle"
+        icon="i-lucide-lock"
+        title="Your cart is being checked out."
+        description="It can be changed again if the checkout fails."
+        :actions="[{ label: 'View checkout', to: `/checkout/${cart.lockedByCheckoutId}` }]"
+        data-test="cart-locked"
+      />
       <ul class="divide-y divide-default lg:col-span-2" aria-label="Cart items">
         <li v-for="line in cart.lines" :key="line.sku" class="flex flex-wrap items-center gap-4 py-4">
           <div class="min-w-0 flex-1">
@@ -98,7 +114,7 @@ async function submitCoupon() {
             :model-value="line.quantity"
             :min="1"
             :max="99"
-            :disabled="busy || !line.available"
+            :disabled="readOnly || !line.available"
             class="w-28"
             :aria-label="`Quantity of ${line.variantName}`"
             @update:model-value="(quantity) => changeQuantity(line.sku, quantity)"
@@ -111,7 +127,7 @@ async function submitCoupon() {
             variant="ghost"
             icon="i-lucide-trash-2"
             :aria-label="`Remove ${line.variantName}`"
-            :disabled="busy"
+            :disabled="readOnly"
             @click="run(() => remove(line.sku), 'The item could not be removed.')"
           />
         </li>
@@ -128,7 +144,7 @@ async function submitCoupon() {
                 color="neutral"
                 variant="link"
                 label="Remove"
-                :disabled="busy"
+                :disabled="readOnly"
                 @click="run(removeCoupon, 'The coupon could not be removed.')"
               />
             </div>
@@ -138,8 +154,14 @@ async function submitCoupon() {
             <p v-else-if="cart.coupon?.description" class="text-sm text-muted">{{ cart.coupon.description }}</p>
           </div>
           <form v-else class="flex gap-2" @submit.prevent="submitCoupon">
-            <UInput v-model="couponInput" placeholder="Coupon code" aria-label="Coupon code" class="flex-1" />
-            <UButton type="submit" label="Apply" color="neutral" :loading="busy" />
+            <UInput
+              v-model="couponInput"
+              placeholder="Coupon code"
+              aria-label="Coupon code"
+              class="flex-1"
+              :disabled="locked"
+            />
+            <UButton type="submit" label="Apply" color="neutral" :loading="busy" :disabled="locked" />
           </form>
           <p v-if="couponError" class="text-sm text-error">{{ couponError }}</p>
         </div>

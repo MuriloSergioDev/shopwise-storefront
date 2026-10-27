@@ -33,6 +33,11 @@ export interface CartView {
   couponCode: string | null
   /** The quote's verdict on couponCode; null when there is no code or nothing to price. */
   coupon: CartViewCoupon | null
+  /**
+   * Set while a checkout holds the cart (ADR-0004): every change is refused until it fails or the cart is closed.
+   * The id is the customer's own checkout, safe to link to.
+   */
+  lockedByCheckoutId: string | null
   /** Null when pricing could not be reached. */
   totals: { subtotal: number; discount: number; total: number } | null
 }

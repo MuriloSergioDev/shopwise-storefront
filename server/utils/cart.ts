@@ -10,7 +10,8 @@ const cartPath = (cart: Pick<Cart, 'id'>, rest = '') => `/api/carts/${encodeURIC
 
 /**
  * The shopper's cart, or null for a guest who has none yet. A customer's is created by the cart service on first
- * access; before reading it, a guest cart left over from a failed sign-in merge is merged.
+ * access (`GET /api/me/cart` answers 201 then, 200 otherwise); before reading it, a guest cart left over from a
+ * failed sign-in merge is merged.
  */
 export async function findCart(event: H3Event, token: string | undefined): Promise<Cart | null> {
   if (token) {
@@ -112,19 +113,31 @@ export async function toCartView(event: H3Event, cart: Cart | null): Promise<Car
   }
 }
 
-/**
- * Moves a guest cart into the customer's cart. Never throws: a failure is logged and returns null, and the caller
- * keeps the guest cart id for a retry (merging an unknown or already merged cart is a no-op for the cart service).
- */
-export async function mergeGuestCart(event: H3Event, token: string, guestCartId: string): Promise<Cart | null> {
-  try {
-    const { data } = await serviceFetch<CartResponse>(event, 'cart', '/api/me/cart/merge', {
-      method: 'POST',
-      token,
-      body: { guestCartId },
-    })
+export interface MergeResult {
+  cart: Cart
+  /** Guest SKUs that did not fit (a cart holds 50 lines); the shopper should be told. */
+  droppedSkus: string[]
+}
 
-    return data
+/**
+ * Moves a guest cart into the customer's cart. Never throws: a failure (including 409 while a checkout holds the
+ * customer cart) is logged and returns null, and the caller keeps the guest cart id for a retry (merging an unknown
+ * or already merged cart is a no-op for the cart service).
+ */
+export async function mergeGuestCart(event: H3Event, token: string, guestCartId: string): Promise<MergeResult | null> {
+  try {
+    const { data, meta } = await serviceFetch<CartResponse & { meta?: { droppedSkus?: string[] } }>(
+      event,
+      'cart',
+      '/api/me/cart/merge',
+      { method: 'POST', token, body: { guestCartId } },
+    )
+    const droppedSkus = meta?.droppedSkus ?? []
+    if (droppedSkus.length > 0) {
+      console.warn('[cart] the guest cart did not fit; dropped', droppedSkus)
+    }
+
+    return { cart: data, droppedSkus }
   } catch (error) {
     console.warn('[cart] merging the guest cart failed; retrying on the next cart request', error)
 
@@ -142,7 +155,7 @@ async function mergePendingGuestCart(event: H3Event, token: string): Promise<Car
     await forgetGuestCart(event)
   }
 
-  return merged
+  return merged?.cart ?? null
 }
 
 async function forgetGuestCart(event: H3Event): Promise<void> {

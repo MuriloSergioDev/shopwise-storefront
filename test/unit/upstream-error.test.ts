@@ -21,6 +21,16 @@ describe('toBffError', () => {
     expect(error.data).toEqual({ errors: { email: ['bad'] } })
   })
 
+  it("passes a service's error code on, e.g. cart's cart_locked with the checkout holding the lock", () => {
+    const error = toBffError(
+      'cart',
+      fetchError(409, { message: 'This cart is being checked out.', code: 'cart_locked', checkoutId: 'checkout-1' }),
+    )
+
+    expect(error.statusCode).toBe(409)
+    expect(error.data).toEqual({ code: 'cart_locked', checkoutId: 'checkout-1' })
+  })
+
   it('keeps 404s as 404s', () => {
     expect(toBffError('catalog', fetchError(404)).statusCode).toBe(404)
   })

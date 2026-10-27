@@ -70,13 +70,21 @@ BFF routes: `POST /api/auth/{login,register,logout}`, `GET /api/catalog/categori
   cache patterns one segment deep (`/api/catalog/products/*`, not `/**`).
 - **Checkout** (ADR-0004 in shopwise-platform): customers only. The BFF reads the customer cart (`GET /api/me/cart`)
   and sends its id to `POST /api/checkouts` with `Idempotency-Key` = the page's `attemptId` (a UUID per attempt,
-  renewed only after a failure), so double submits and the 401 retry return the same checkout. Checkout returns no
-  Stripe client secret (3-D Secure is out of scope), so the card becomes a PaymentMethod in the browser: with
-  `NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` the Payment Element (`paymentMethodCreation: 'manual'`, cards only) and
-  `stripe.createPaymentMethod`; without it and with `NUXT_PUBLIC_TEST_CARDS` (on in `nuxt dev`) a picker of
-  `pm_card_visa` / `pm_card_chargeDeclined`, which payments' fake gateway (no `STRIPE_SECRET`) understands. Card
-  data never reaches the BFF. The status page polls every second; an order exists from `closing_cart` on. Cart
-  edits are not blocked while a checkout runs (ADR-0004 asks for it; not done).
+  renewed only after a failure), so double submits and the 401 retry return the same checkout. The card becomes a
+  PaymentMethod in the browser: with `NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` the Payment Element
+  (`paymentMethodCreation: 'manual'`, cards only) and `stripe.createPaymentMethod`; without it and with
+  `NUXT_PUBLIC_TEST_CARDS` (on in `nuxt dev`) a picker of `pm_card_visa` / `pm_card_chargeDeclined` /
+  `pm_card_threeDSecure2Required`, which payments' fake gateway (no `STRIPE_SECRET`) understands (`usePaymentMode`).
+  Card data never reaches the BFF. The status page polls every second; an order exists from `closing_cart` on.
+  3-D Secure: status `awaiting_payment_action` carries `clientSecret` + `paymentActionExpiresAt`; with Stripe the
+  page runs `stripe.handleNextAction` once and keeps polling (payments learns the outcome from the webhook); in
+  test-card mode `TestPaymentAction` explains how to finish it with the fake gateway.
+- **Cart lock**: checkout's snapshot locks the cart (`lockedByCheckoutId` in the cart and in `CartView`). While set,
+  cart shows read-only with a link to that checkout, the checkout page refuses to start another, and any change is
+  cart's 409 `cart_locked`, passed on as 409 with `data: {code, checkoutId}` and a shopper message. The merge is 409
+  too: the guest cart id is kept and retried like any failed merge. Guest SKUs that did not fit (50 lines) come back
+  from login/register as `meta.droppedSkus` and `useAuth` shows them in a toast. `GET /api/me/cart` answers 201 when
+  it creates the cart.
 - **Tracing**: `runtimeConfig.tracing.exporterUrl` (`NUXT_TRACING_EXPORTER_URL`) defaults to `http://localhost:4318`
   in `nuxt dev` (Tilt forwards the cluster's collector) and is empty in builds and tests. Export is fire-and-forget.
 - Money is integer minor units plus a currency; format it with `formatMoney` (`shared/utils/money.ts`).

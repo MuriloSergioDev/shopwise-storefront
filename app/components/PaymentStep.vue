@@ -6,13 +6,17 @@ import type { Stripe, StripeElements } from '@stripe/stripe-js'
 // payments' fake gateway knows them (and so does Stripe test mode).
 const props = defineProps<{ amount: number; currency: string }>()
 
-const config = useRuntimeConfig()
-const publishableKey = config.public.stripePublishableKey
-const mode = publishableKey ? 'stripe' : config.public.testCards ? 'test-cards' : 'unavailable'
+const publishableKey = useRuntimeConfig().public.stripePublishableKey
+const mode = usePaymentMode()
 
 const TEST_CARDS = [
   { value: 'pm_card_visa', label: 'Visa ending 4242', description: 'Payment succeeds.' },
   { value: 'pm_card_chargeDeclined', label: 'Visa ending 0002', description: 'Payment is declined.' },
+  {
+    value: 'pm_card_threeDSecure2Required',
+    label: 'Visa ending 3220',
+    description: 'Needs 3-D Secure; the next page lets you finish it.',
+  },
 ]
 const testCard = ref(TEST_CARDS[0]!.value)
 

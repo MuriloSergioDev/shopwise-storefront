@@ -11,6 +11,7 @@ const view = (overrides: Partial<CartView> = {}): CartView => ({
   currency: 'USD',
   couponCode: null,
   coupon: null,
+  lockedByCheckoutId: null,
   totals: { subtotal: 10800, discount: 0, total: 10800 },
   lines: [
     {
@@ -38,6 +39,19 @@ const view = (overrides: Partial<CartView> = {}): CartView => ({
 })
 
 describe('cart page', () => {
+  it('is read-only while a checkout holds the cart, with a link to it', async () => {
+    clearNuxtData()
+    registerEndpoint('/api/cart', () => ({ data: view({ owner: 'customer', lockedByCheckoutId: 'checkout-9' }) }))
+
+    const page = await mountSuspended(CartPage, { route: '/cart' })
+
+    expect(page.find('[data-test="cart-locked"]').text()).toContain('Your cart is being checked out.')
+    expect(page.find('a[href="/checkout/checkout-9"]').exists()).toBe(true)
+    const remove = page.findAll('button').find((button) => button.attributes('aria-label')?.startsWith('Remove'))!
+    expect(remove.attributes('disabled')).toBeDefined()
+    expect(page.find('input[aria-label="Coupon code"]').attributes('disabled')).toBeDefined()
+  })
+
   beforeEach(() => clearNuxtData())
 
   it('lists the lines with money formatted from minor units, and the totals', async () => {

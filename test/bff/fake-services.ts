@@ -31,6 +31,8 @@ interface FakeCart {
   owner: 'guest' | 'customer'
   couponCode: string | null
   lines: Array<{ sku: string; quantity: number }>
+  /** The checkout holding the cart (ADR-0004); changes are 409 cart_locked while set. */
+  lockedBy?: string | null
 }
 
 export const state = {
@@ -42,6 +44,8 @@ export const state = {
   refreshDelayMs: 0,
   refreshFails: false,
   mergeFails: false,
+  /** Lines a cart may hold; the merge drops guest SKUs beyond it (the real limit is 50). */
+  cartLineLimit: 50,
   pricingDown: false,
   /** Refresh tokens that came back after being spent: identity would revoke the family. */
   reusedRefreshTokens: [] as string[],
@@ -109,6 +113,7 @@ export function reset() {
   state.refreshDelayMs = 0
   state.refreshFails = false
   state.mergeFails = false
+  state.cartLineLimit = 50
   state.pricingDown = false
   state.reusedRefreshTokens = []
   state.carts.clear()
@@ -149,6 +154,7 @@ function toCart(cart: FakeCart) {
       owner: cart.owner,
       couponCode: cart.couponCode,
       updatedAt: '2026-10-26T00:00:00Z',
+      lockedByCheckoutId: cart.lockedBy ?? null,
       lines: cart.lines.map(({ sku, quantity }) => ({
         sku,
         quantity,
@@ -164,14 +170,24 @@ function toCart(cart: FakeCart) {
 }
 
 function customerCart(): FakeCart {
-  let cart = state.carts.get('customer-cart')
-  if (!cart) {
-    cart = { id: 'customer-cart', owner: 'customer', couponCode: null, lines: [] }
-    state.carts.set(cart.id, cart)
-  }
-
-  return cart
+  return openCustomerCart().cart
 }
+
+function openCustomerCart(): { cart: FakeCart; created: boolean } {
+  const existing = state.carts.get('customer-cart')
+  if (existing) {
+    return { cart: existing, created: false }
+  }
+  const cart: FakeCart = { id: 'customer-cart', owner: 'customer', couponCode: null, lines: [] }
+  state.carts.set(cart.id, cart)
+
+  return { cart, created: true }
+}
+
+const cartLocked = (cart: FakeCart): UpstreamReply => ({
+  status: 409,
+  body: { message: 'This cart is being checked out.', code: 'cart_locked', checkoutId: cart.lockedBy },
+})
 
 /** A cart the caller may touch: guest carts by id alone, the customer cart only with a valid token. */
 function ownedCart(call: UpstreamCall, id: string): FakeCart | undefined {
@@ -265,7 +281,12 @@ function cart(call: UpstreamCall): UpstreamReply | undefined {
     return ok(toCart(created), 201)
   }
   if (route === 'GET /api/me/cart') {
-    return bearer(call) ? ok(toCart(customerCart())) : { status: 401 }
+    if (!bearer(call)) {
+      return { status: 401 }
+    }
+    const { cart: opened, created } = openCustomerCart()
+
+    return ok(toCart(opened), created ? 201 : 200)
   }
   if (route === 'POST /api/me/cart/merge') {
     if (!bearer(call)) {
@@ -275,21 +296,27 @@ function cart(call: UpstreamCall): UpstreamReply | undefined {
       return { status: 503 }
     }
     const target = customerCart()
+    if (target.lockedBy) {
+      return cartLocked(target)
+    }
     const guest = state.carts.get(String(call.body?.guestCartId))
+    const droppedSkus: string[] = []
     if (guest?.owner === 'guest') {
       for (const line of guest.lines) {
         const existing = target.lines.find((candidate) => candidate.sku === line.sku)
         if (existing) {
           existing.quantity = Math.min(existing.quantity + line.quantity, 99)
-        } else {
+        } else if (target.lines.length < state.cartLineLimit) {
           target.lines.push({ ...line })
+        } else {
+          droppedSkus.push(line.sku)
         }
       }
       target.couponCode ??= guest.couponCode
       state.carts.delete(guest.id)
     }
 
-    return ok(toCart(target))
+    return ok({ ...toCart(target), meta: { droppedSkus } })
   }
 
   const match = /^\/api\/carts\/([^/]+)(?:\/(items|coupon)(?:\/([^/]+))?)?$/.exec(call.path)
@@ -304,6 +331,9 @@ function cart(call: UpstreamCall): UpstreamReply | undefined {
 
   if (call.method === 'GET' && !resource) {
     return ok(toCart(target))
+  }
+  if (resource && call.method !== 'GET' && target.lockedBy) {
+    return cartLocked(target)
   }
   if (resource === 'items' && sku) {
     const decoded = decodeURIComponent(sku)
@@ -348,6 +378,9 @@ function checkout(call: UpstreamCall): UpstreamReply | undefined {
     if (!target || target.owner !== 'customer') {
       return { status: 404, body: { message: 'Cart not found.' } }
     }
+    if (target.lockedBy) {
+      return { status: 409, body: { message: 'The cart already has a checkout in progress.' } }
+    }
     if (target.couponCode === 'BIGSPEND') {
       return {
         status: 422,
@@ -382,6 +415,8 @@ function checkout(call: UpstreamCall): UpstreamReply | undefined {
       updatedAt: '2026-10-27T00:00:00Z',
     }
     state.checkouts.set(created.id, created)
+    // The snapshot locks the cart for this checkout (ADR-0004).
+    target.lockedBy = created.id
 
     return ok({ data: created }, 202)
   }

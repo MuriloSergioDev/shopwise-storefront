@@ -12,7 +12,8 @@ export default defineEventHandler(async (event) => {
     method: 'POST',
     body,
   })
-  const customer = await startSession(event, pair)
+  const { customer, droppedSkus } = await startSession(event, pair)
 
-  return { data: customer }
+  // droppedSkus: guest cart items that did not fit into the customer cart (50 lines at most).
+  return { data: customer, meta: { droppedSkus } }
 })

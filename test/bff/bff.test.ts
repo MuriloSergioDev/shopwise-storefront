@@ -72,7 +72,7 @@ describe('auth', () => {
     const browser = new Browser()
     const response = await browser.signIn()
 
-    expect(await response.json()).toEqual({ data: customer })
+    expect(await response.json()).toEqual({ data: customer, meta: { droppedSkus: [] } })
     expect(callsTo('GET', '/api/me')[0]?.headers.authorization).toMatch(/^Bearer access-\d+$/)
 
     const current = await browser.session()
@@ -601,5 +601,69 @@ describe('orders', () => {
 
     expect(response.status).toBe(401)
     expect(callsTo('GET', '/api/me/orders')).toHaveLength(0)
+  })
+})
+
+describe('cart lock and merge limits', () => {
+  it('shows the lock and refuses changes while a checkout holds the cart', async () => {
+    const browser = new Browser()
+    await browser.signIn()
+    await browser.post('/api/cart/items', { sku: 'MUG-WHT' })
+    const { data: started } = await (await browser.post('/api/checkout', attempt())).json()
+
+    const view = (await (await browser.request('/api/cart')).json()).data
+    const add = await browser.post('/api/cart/items', { sku: 'TEE-BLK-M' })
+    const coupon = await browser.request('/api/cart/coupon', { method: 'PUT', body: { code: 'TENOFF' } })
+
+    expect(view.lockedByCheckoutId).toBe(started.id)
+    for (const response of [add, coupon]) {
+      const body = await response.json()
+      expect(response.status).toBe(409)
+      expect(body.statusMessage).toBe('Your cart is being checked out. It can be changed again if the checkout fails.')
+      expect(body.data).toEqual({ code: 'cart_locked', checkoutId: started.id })
+    }
+  })
+
+  it('works when the cart service creates the customer cart (201)', async () => {
+    const browser = new Browser()
+    await browser.signIn()
+    upstream.calls.length = 0
+
+    const response = await browser.request('/api/cart')
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).data).toMatchObject({ owner: 'customer', lines: [], lockedByCheckoutId: null })
+  })
+
+  it('names the guest items that did not fit into the customer cart', async () => {
+    const customerSide = new Browser()
+    await customerSide.signIn()
+    await customerSide.post('/api/cart/items', { sku: 'MUG-WHT' })
+    state.cartLineLimit = 1
+    const browser = new Browser()
+    await browser.post('/api/cart/items', { sku: 'TEE-BLK-L' })
+
+    const response = await browser.signIn()
+
+    expect((await response.json()).meta).toEqual({ droppedSkus: ['TEE-BLK-L'] })
+  })
+
+  it('keeps the guest cart when the customer cart is locked, and merges it once unlocked', async () => {
+    const customerSide = new Browser()
+    await customerSide.signIn()
+    await customerSide.post('/api/cart/items', { sku: 'MUG-WHT' })
+    await customerSide.post('/api/checkout', attempt())
+    const browser = new Browser()
+    await browser.post('/api/cart/items', { sku: 'TEE-BLK-L' })
+
+    const signIn = await browser.signIn()
+    expect((await signIn.json()).meta).toEqual({ droppedSkus: [] })
+    expect(state.carts.has('guest-1')).toBe(true)
+
+    state.carts.get('customer-cart')!.lockedBy = null
+    upstream.calls.length = 0
+    const { data: cart } = await (await browser.request('/api/cart')).json()
+    expect(callsTo('POST', '/api/me/cart/merge')[0]?.body).toEqual({ guestCartId: 'guest-1' })
+    expect(cart.lines.map((line: { sku: string }) => line.sku)).toEqual(['MUG-WHT', 'TEE-BLK-L'])
   })
 })

@@ -32,5 +32,7 @@ describe('checkout helpers', () => {
     expect(failureMessage({ failureReason: 'timeout' })).toMatch(/refunded/)
     expect(failureMessage({ failureReason: null })).toBeNull()
     expect(stepLabel('paying')).toBe('Taking payment…')
+    expect(stepLabel('awaiting_payment_action')).toBe('Waiting for your bank to confirm the payment…')
+    expect(isFinal({ status: 'awaiting_payment_action' })).toBe(false)
   })
 })

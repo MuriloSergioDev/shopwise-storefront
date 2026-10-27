@@ -14,6 +14,7 @@ const cart: CartView = {
   currency: 'USD',
   couponCode: 'WELCOME10',
   coupon: { code: 'WELCOME10', valid: true, reason: null, message: null, description: '10% off' },
+  lockedByCheckoutId: null,
   totals: { subtotal: 1800, discount: 180, total: 1620 },
   lines: [
     {
@@ -110,6 +111,24 @@ describe('checkout page', () => {
     expect(page.text()).toContain('Visa ending 0002')
   })
 
+  it('offers the 3-D Secure test card', async () => {
+    registerEndpoint('/api/cart', () => ({ data: cart }))
+
+    const page = await mountSuspended(CheckoutPage, { route: '/checkout' })
+
+    expect(page.text()).toContain('Visa ending 3220')
+  })
+
+  it('points to the running checkout when the cart is locked', async () => {
+    registerEndpoint('/api/cart', () => ({ data: { ...cart, lockedByCheckoutId: 'checkout-9' } }))
+
+    const page = await mountSuspended(CheckoutPage, { route: '/checkout' })
+
+    expect(page.find('[data-test="cart-locked"]').exists()).toBe(true)
+    expect(page.find('a[href="/checkout/checkout-9"]').exists()).toBe(true)
+    expect(page.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+  })
+
   it('blocks checkout while a line is unavailable', async () => {
     registerEndpoint('/api/cart', () => ({
       data: { ...cart, lines: [{ ...cart.lines[0]!, available: false }] },
@@ -146,6 +165,22 @@ describe('checkout status page', () => {
 
     expect(page.find('[data-test="checkout-confirmed"]').exists()).toBe(true)
     expect(page.find('a[href="/orders/order-1"]').exists()).toBe(true)
+  })
+
+  it('asks for 3-D Secure and, in test-card mode, explains how to finish it', async () => {
+    registerEndpoint('/api/checkout/checkout-4', () => ({
+      data: checkout({
+        id: 'checkout-4',
+        status: 'awaiting_payment_action',
+        clientSecret: 'pi_fake_secret_abc',
+        paymentActionExpiresAt: '2026-10-27T10:10:00Z',
+      }),
+    }))
+
+    const page = await mountSuspended(CheckoutStatusPage, { route: '/checkout/checkout-4' })
+
+    expect(page.find('[data-test="checkout-payment-action"]').text()).toContain('Confirm the payment with your bank')
+    expect(page.find('[data-test="test-payment-action"]').exists()).toBe(true)
   })
 
   it("explains a declined card with payments' message", async () => {
