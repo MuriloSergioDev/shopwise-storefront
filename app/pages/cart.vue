@@ -4,6 +4,7 @@ useSeoMeta({ title: 'Cart · Shopwise' })
 const { data: cart, error, status } = await useCart()
 const { setQuantity, remove, applyCoupon, removeCoupon } = useCartActions()
 const toast = useToast()
+const { loggedIn } = useUserSession()
 
 const busy = ref(false)
 const couponInput = ref('')
@@ -11,6 +12,14 @@ const couponError = ref<string>()
 
 const money = (amount: number | null) =>
   amount === null || !cart.value ? '—' : formatMoney(amount, cart.value.currency)
+
+const canCheckout = computed(
+  () =>
+    !!cart.value &&
+    cart.value.lines.every((line) => line.available) &&
+    cart.value.totals !== null &&
+    cart.value.coupon?.valid !== false,
+)
 
 async function run(action: () => Promise<unknown>, fallback: string) {
   busy.value = true
@@ -157,7 +166,14 @@ async function submitCoupon() {
           title="Totals are unavailable right now."
           description="Prices shown are the last known ones."
         />
-        <p class="text-sm text-muted">Checkout is coming soon.</p>
+        <UButton
+          :to="loggedIn ? '/checkout' : { path: '/login', query: { redirect: '/checkout' } }"
+          block
+          size="lg"
+          :label="loggedIn ? 'Check out' : 'Sign in to check out'"
+          trailing-icon="i-lucide-arrow-right"
+          :disabled="busy || !canCheckout"
+        />
       </aside>
     </div>
   </UContainer>

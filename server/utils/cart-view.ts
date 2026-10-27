@@ -19,6 +19,8 @@ const COUPON_MESSAGES: Record<CouponReason, string> = {
   not_started: 'This coupon is not active yet.',
   expired: 'This coupon has expired.',
   min_subtotal_not_met: 'Your order does not reach the minimum for this coupon yet.',
+  already_redeemed: 'You have already used this coupon.',
+  exhausted: 'This coupon has been used up.',
 }
 
 export function couponMessage(reason: CouponReason | null): string | null {

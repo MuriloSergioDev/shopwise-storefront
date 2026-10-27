@@ -13,12 +13,14 @@
     "format": "prettier --write .",
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
+    "e2e": "playwright test",
     "check": "prettier --check . && eslint . && nuxt typecheck && vitest run",
     "prepare": "lefthook install"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.147",
     "@nuxt/ui": "^4.12.0",
+    "@stripe/stripe-js": "^10.1.0",
     "h3": "^1.15.11",
     "nuxt": "^4.6.2",
     "nuxt-auth-utils": "^0.5.32",
@@ -33,6 +35,7 @@
     "@commitlint/config-conventional": "^21.2.4",
     "@nuxt/eslint": "^1.17.0",
     "@nuxt/test-utils": "^4.3.4",
+    "@playwright/test": "^1.64.1",
     "@shopwise/contracts": "github:MuriloSergioDev/shopwise-contracts",
     "@vue/test-utils": "^2.5.1",
     "eslint": "^10.13.0",

@@ -1,11 +1,11 @@
-// Builds the app and runs the real Nitro server against fake identity, catalog, pricing and cart services.
+// Builds the app and runs the real Nitro server against fake identity, catalog, pricing, cart, checkout and orders.
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { fetch, setup } from '@nuxt/test-utils/e2e'
 import { startUpstream, type UpstreamCall } from './upstream'
-import { PASSWORD, customer, lastIssued, reply, reset, searchResult, state } from './fake-services'
+import { PASSWORD, customer, lastIssued, order, reply, reset, searchResult, state } from './fake-services'
 
 const upstream = await startUpstream(reply)
-for (const service of ['IDENTITY', 'CATALOG', 'PRICING', 'CART']) {
+for (const service of ['IDENTITY', 'CATALOG', 'PRICING', 'CART', 'CHECKOUT', 'ORDERS']) {
   process.env[`NUXT_${service}_URL`] = upstream.url
 }
 process.env.NUXT_SESSION_PASSWORD = 'test-session-password-at-least-32-chars'
@@ -134,7 +134,15 @@ describe('catalog', () => {
     expect(await response.json()).toEqual(searchResult)
     const call = upstream.calls[0]!
     expect(Object.fromEntries(call.query)).toEqual({ q: 'tee', 'options[color]': 'Black', page: '2' })
-    expect(call.headers.traceparent).toBe('00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01')
+    // Same trace, under a span of the BFF's own.
+    expect(call.headers.traceparent).toMatch(/^00-0af7651916cd43dd8448eb211c80319c-[0-9a-f]{16}-01$/)
+    expect(call.headers.traceparent).not.toContain('b7ad6b7169203331')
+  })
+
+  it('starts a trace when the request carries none', async () => {
+    await fetch('/api/catalog/products?q=tee')
+
+    expect(upstream.calls[0]?.headers.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
   })
 
   it('rejects invalid paging without calling catalog', async () => {
@@ -448,5 +456,150 @@ describe('token refresh', () => {
     expect((await response.json()).data).toMatchObject({ owner: 'guest', lines: [] })
     expect(callsTo('GET', '/api/me/cart')).toHaveLength(0)
     expect((await browser.session()).user).toBeUndefined()
+  })
+})
+
+const address = {
+  name: 'Ada Lovelace',
+  line1: '1 Analytical Way',
+  line2: '',
+  city: 'London',
+  postalCode: 'N1 1AA',
+  country: 'GB',
+}
+const attempt = (attemptId: string = crypto.randomUUID()) => ({
+  attemptId,
+  paymentMethodId: 'pm_card_visa',
+  shippingAddress: address,
+})
+
+describe('checkout', () => {
+  async function customerWithMug() {
+    const browser = new Browser()
+    await browser.signIn()
+    await browser.post('/api/cart/items', { sku: 'MUG-WHT' })
+    upstream.calls.length = 0
+
+    return browser
+  }
+
+  it("starts a checkout for the customer's cart with their token and the attempt as Idempotency-Key", async () => {
+    const browser = await customerWithMug()
+    const body = attempt()
+
+    const response = await browser.post('/api/checkout', body)
+
+    expect(response.status).toBe(202)
+    expect((await response.json()).data).toMatchObject({ id: 'checkout-1', status: 'reserving', total: 1800 })
+    const [start] = callsTo('POST', '/api/checkouts')
+    expect(start?.headers.authorization).toBe(`Bearer access-${lastIssued()}`)
+    expect(start?.headers['idempotency-key']).toBe(body.attemptId)
+    expect(start?.body).toEqual({
+      cartId: 'customer-cart',
+      paymentMethodId: 'pm_card_visa',
+      shippingAddress: { ...address, line2: null, region: null },
+    })
+  })
+
+  it('returns the same checkout when the same attempt is submitted twice', async () => {
+    const browser = await customerWithMug()
+    const body = attempt()
+
+    const first = await (await browser.post('/api/checkout', body)).json()
+    const second = await (await browser.post('/api/checkout', body)).json()
+
+    expect(second.data.id).toBe(first.data.id)
+    expect(state.checkouts.size).toBe(1)
+  })
+
+  it('asks guests to sign in without calling checkout', async () => {
+    const browser = new Browser()
+    await browser.post('/api/cart/items', { sku: 'MUG-WHT' })
+    upstream.calls.length = 0
+
+    const response = await browser.post('/api/checkout', attempt())
+
+    expect(response.status).toBe(401)
+    expect(callsTo('POST', '/api/checkouts')).toHaveLength(0)
+  })
+
+  it('refuses an empty cart before calling checkout', async () => {
+    const browser = new Browser()
+    await browser.signIn()
+
+    const response = await browser.post('/api/checkout', attempt())
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).statusMessage).toBe('Your cart is empty.')
+    expect(callsTo('POST', '/api/checkouts')).toHaveLength(0)
+  })
+
+  it("words checkout's coupon refusal and a checkout already in progress for the shopper", async () => {
+    const browser = await customerWithMug()
+    await browser.request('/api/cart/coupon', { method: 'PUT', body: { code: 'BIGSPEND' } })
+
+    const coupon = await browser.post('/api/checkout', attempt())
+    expect(coupon.status).toBe(422)
+    expect((await coupon.json()).statusMessage).toBe('Your order does not reach the minimum for this coupon yet.')
+
+    await browser.request('/api/cart/coupon', { method: 'DELETE' })
+    state.checkoutInProgress = true
+    const busy = await browser.post('/api/checkout', attempt())
+    expect(busy.status).toBe(409)
+    expect((await busy.json()).statusMessage).toBe('Your cart already has a checkout in progress.')
+  })
+
+  it('rejects a card number or a malformed address without calling a service', async () => {
+    const browser = await customerWithMug()
+
+    const card = await browser.post('/api/checkout', { ...attempt(), paymentMethodId: '4242424242424242' })
+    const country = await browser.post('/api/checkout', {
+      ...attempt(),
+      shippingAddress: { ...address, country: 'Britain' },
+    })
+
+    expect(card.status).toBe(400)
+    expect(country.status).toBe(400)
+    expect(upstream.calls).toHaveLength(0)
+  })
+
+  it('reads the checkout status with the customer token, and 404s for an unknown one', async () => {
+    const browser = await customerWithMug()
+    const { data: started } = await (await browser.post('/api/checkout', attempt())).json()
+    Object.assign(state.checkouts.get(started.id)!, {
+      status: 'failed',
+      failureReason: 'payment_failed',
+      paymentFailure: { reason: 'card_declined', message: 'Your card was declined.' },
+    })
+
+    const response = await browser.request(`/api/checkout/${started.id}`)
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).data).toMatchObject({ status: 'failed', failureReason: 'payment_failed' })
+    expect(callsTo('GET', `/api/checkouts/${started.id}`)[0]?.headers.authorization).toMatch(/^Bearer access-/)
+    expect((await browser.request('/api/checkout/unknown')).status).toBe(404)
+  })
+})
+
+describe('orders', () => {
+  it("lists the customer's orders and shows one", async () => {
+    const browser = new Browser()
+    await browser.signIn()
+
+    const list = await (await browser.request('/api/orders?page=1')).json()
+    const detail = await browser.request(`/api/orders/${order.id}`)
+
+    expect(list.data).toEqual([expect.objectContaining({ id: order.id, number: 'SW-000001', total: 1800 })])
+    expect(callsTo('GET', '/api/me/orders')[0]?.query.get('page')).toBe('1')
+    expect(detail.status).toBe(200)
+    expect((await detail.json()).data).toMatchObject({ number: 'SW-000001', shippingAddress: { city: 'London' } })
+    expect((await browser.request('/api/orders/someone-elses')).status).toBe(404)
+  })
+
+  it('asks guests to sign in', async () => {
+    const response = await new Browser().request('/api/orders')
+
+    expect(response.status).toBe(401)
+    expect(callsTo('GET', '/api/me/orders')).toHaveLength(0)
   })
 })

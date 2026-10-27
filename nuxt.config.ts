@@ -7,12 +7,27 @@ export default defineNuxtConfig({
   typescript: { strict: true },
 
   // Service base URLs are server-only: the browser only ever talks to this BFF.
-  // Override with NUXT_IDENTITY_URL / NUXT_CATALOG_URL / NUXT_PRICING_URL / NUXT_CART_URL.
+  // Override with NUXT_IDENTITY_URL / NUXT_CATALOG_URL / NUXT_PRICING_URL / NUXT_CART_URL / NUXT_CHECKOUT_URL /
+  // NUXT_ORDERS_URL.
   runtimeConfig: {
     identityUrl: 'http://localhost:8101',
     catalogUrl: 'http://localhost:8102',
     pricingUrl: 'http://localhost:8104',
     cartUrl: 'http://localhost:8105',
+    checkoutUrl: 'http://localhost:8106',
+    ordersUrl: 'http://localhost:8108',
+    tracing: {
+      // OTLP/HTTP collector for the BFF's spans (NUXT_TRACING_EXPORTER_URL). `nuxt dev` uses the cluster's (Tilt
+      // forwards :4318); builds export nothing unless it is set.
+      exporterUrl: process.env.NODE_ENV === 'production' ? '' : 'http://localhost:4318',
+    },
+    public: {
+      // NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY (pk_test_�): the payment step uses Stripe's Payment Element. Without it,
+      // and only when test cards are allowed (NUXT_PUBLIC_TEST_CARDS, on in `nuxt dev`), it offers Stripe's test
+      // payment methods for payments' fake gateway.
+      stripePublishableKey: '',
+      testCards: process.env.NODE_ENV !== 'production',
+    },
   },
 
   // Pages render per request (they show the signed-in customer and their cart). Only public catalog reads are

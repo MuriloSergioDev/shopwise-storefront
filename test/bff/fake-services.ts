@@ -1,4 +1,4 @@
-// In-memory fakes of identity, catalog, pricing and cart, shaped by their OpenAPI contracts. Tests tweak `state`
+// In-memory fakes of identity, catalog, pricing, cart, checkout and orders, shaped by their OpenAPI contracts. Tests tweak `state`
 // to provoke failures; `reset()` runs before each test.
 import type { UpstreamCall, UpstreamReply } from './upstream'
 
@@ -46,6 +46,55 @@ export const state = {
   /** Refresh tokens that came back after being spent: identity would revoke the family. */
   reusedRefreshTokens: [] as string[],
   carts: new Map<string, FakeCart>(),
+  /** Checkouts by id; tests move their status along. */
+  checkouts: new Map<string, FakeCheckout>(),
+  /** Checkout answers 409: the cart has another checkout in progress. */
+  checkoutInProgress: false,
+}
+
+type FakeCheckout = Record<string, unknown> & { id: string; idempotencyKey: string }
+
+const shippingAddress = {
+  name: 'Ada',
+  line1: '1 Analytical Way',
+  line2: null,
+  city: 'London',
+  region: null,
+  postalCode: 'N1 1AA',
+  country: 'GB',
+}
+
+export const orderSummary = {
+  id: '01order',
+  number: 'SW-000001',
+  status: 'placed',
+  customerId: customer.id,
+  email: customer.email,
+  itemCount: 1,
+  currency: 'USD',
+  total: 1800,
+  placedAt: '2026-10-27T00:00:00Z',
+}
+
+export const order = {
+  ...orderSummary,
+  checkoutId: 'checkout-1',
+  paymentId: '01payment',
+  lines: [
+    {
+      sku: 'MUG-WHT',
+      productName: 'Stoneware Mug',
+      variantName: 'White',
+      quantity: 1,
+      unitAmount: 1800,
+      lineAmount: 1800,
+    },
+  ],
+  subtotal: 1800,
+  discount: 0,
+  couponCode: null,
+  shippingAddress,
+  shipment: null,
 }
 
 // Token numbers keep counting across tests: the BFF's refresh coordinator outlives a test.
@@ -63,6 +112,8 @@ export function reset() {
   state.pricingDown = false
   state.reusedRefreshTokens = []
   state.carts.clear()
+  state.checkouts.clear()
+  state.checkoutInProgress = false
   guestCarts = 0
 }
 
@@ -280,12 +331,97 @@ function cart(call: UpstreamCall): UpstreamReply | undefined {
   }
 }
 
+function checkout(call: UpstreamCall): UpstreamReply | undefined {
+  if (call.method === 'POST' && call.path === '/api/checkouts') {
+    if (!bearer(call)) {
+      return { status: 401 }
+    }
+    const key = String(call.headers['idempotency-key'] ?? '')
+    const existing = [...state.checkouts.values()].find((candidate) => candidate.idempotencyKey === key)
+    if (existing) {
+      return ok({ data: existing })
+    }
+    if (state.checkoutInProgress) {
+      return { status: 409, body: { message: 'The cart already has a checkout in progress.' } }
+    }
+    const target = state.carts.get(String(call.body?.cartId))
+    if (!target || target.owner !== 'customer') {
+      return { status: 404, body: { message: 'Cart not found.' } }
+    }
+    if (target.couponCode === 'BIGSPEND') {
+      return {
+        status: 422,
+        body: { message: 'min_subtotal_not_met', errors: { couponCode: ['min_subtotal_not_met'] } },
+      }
+    }
+    const lines = target.lines.map(({ sku, quantity }) => ({
+      sku,
+      productName: 'Stoneware Mug',
+      variantName: VARIANT_NAMES[sku] ?? sku,
+      quantity,
+      unitAmount: PRICES[sku] ?? 0,
+      lineAmount: (PRICES[sku] ?? 0) * quantity,
+    }))
+    const total = lines.reduce((sum, line) => sum + line.lineAmount, 0)
+    const created: FakeCheckout = {
+      id: `checkout-${state.checkouts.size + 1}`,
+      idempotencyKey: key,
+      status: 'reserving',
+      cartId: target.id,
+      customerId: customer.id,
+      orderId: null,
+      failureReason: null,
+      paymentFailure: null,
+      lines,
+      currency: 'USD',
+      subtotal: total,
+      discount: 0,
+      total,
+      couponCode: target.couponCode,
+      createdAt: '2026-10-27T00:00:00Z',
+      updatedAt: '2026-10-27T00:00:00Z',
+    }
+    state.checkouts.set(created.id, created)
+
+    return ok({ data: created }, 202)
+  }
+  const match = /^\/api\/checkouts\/([^/]+)$/.exec(call.path)
+  if (call.method === 'GET' && match) {
+    if (!bearer(call)) {
+      return { status: 401 }
+    }
+    const found = state.checkouts.get(decodeURIComponent(match[1]!))
+
+    return found ? ok({ data: found }) : { status: 404, body: { message: 'Checkout not found.' } }
+  }
+}
+
+function orders(call: UpstreamCall): UpstreamReply | undefined {
+  if (call.method !== 'GET' || !call.path.startsWith('/api/me/orders')) {
+    return undefined
+  }
+  if (!bearer(call)) {
+    return { status: 401 }
+  }
+  if (call.path === '/api/me/orders') {
+    const page = Number(call.query.get('page') ?? 1)
+
+    return ok({ data: [orderSummary], meta: { page, perPage: 20, total: 1, lastPage: 1 } })
+  }
+
+  return call.path === `/api/me/orders/${order.id}`
+    ? ok({ data: order })
+    : { status: 404, body: { message: 'Order not found.' } }
+}
+
 export async function reply(call: UpstreamCall): Promise<UpstreamReply> {
   return (
     (await identity(call)) ??
     catalog(call) ??
     pricing(call) ??
-    cart(call) ?? {
+    cart(call) ??
+    checkout(call) ??
+    orders(call) ?? {
       status: 500,
       body: { message: 'SQLSTATE[42P01]: relation "products" does not exist' },
     }
